@@ -19,9 +19,9 @@ def init_db():
 
 init_db()
 
-active_sessions = {}  # Tracks socket_id -> username currently logged in
+active_sessions = {}  # Tracks socket_id -> {'username': str, 'is_admin': bool}
 
-# Sprite catalog with Grim & Zero Point updated to 500x multiplier
+# Sprite catalog with Grim & Zero Point at 500x multiplier
 SPRITE_CATALOG = {
     'earth': {'name': 'Earth', 'price': 50, 'mult_boost': 1},
     'fire': {'name': 'Fire', 'price': 75, 'mult_boost': 2},
@@ -62,7 +62,9 @@ def get_all_online_players():
     conn = sqlite3.connect('game.db')
     c = conn.cursor()
     players_data = {}
-    for sid, uname in active_sessions.items():
+    for sid, data in active_sessions.items():
+        uname = data['username']
+        is_admin = data['is_admin']
         c.execute("SELECT coins, multiplier, sprites FROM users WHERE username = ?", (uname,))
         row = c.fetchone()
         if row:
@@ -73,7 +75,7 @@ def get_all_online_players():
                 'coins': coins,
                 'multiplier': mult,
                 'sprites': [s for s in sprites_list if s],
-                'is_admin': (uname.upper() == "ADMIN")
+                'is_admin': is_admin
             }
     conn.close()
     return players_data
@@ -96,7 +98,7 @@ HTML_TEMPLATE = """
         }
         .card { background: #f9f9f9; padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #dcdcdc; color: #121212; }
         button { background: #4CAF50; color: white; border: none; padding: 10px 12px; border-radius: 4px; margin: 4px; cursor: pointer; font-weight: bold; }
-        input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 5px; background: #fff; color: #000; display: block; margin-left: auto; margin-right: auto;}
+        input, select { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 5px; background: #fff; color: #000; display: block; margin-left: auto; margin-right: auto;}
         .admin-tag { color: #d32f2f; font-weight: bold; }
         .admin-section { background: #ffebee; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
         .shop-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
@@ -169,6 +171,17 @@ HTML_TEMPLATE = """
                 <button onclick="triggerBoost(10, 15)">10x (15m)</button>
                 <button onclick="triggerBoost(50, 30)">50x (30m)</button>
             </div>
+
+            <div class="admin-section" style="margin-top: 10px;">
+                <p style="margin:5px 0; font-size:14px;"><b>Give Sprite To All Players</b></p>
+                <select id="admin-sprite-select">
+                    <option value="grim">Grim (+500x)</option>
+                    <option value="zeropoint">Zero Point (+500x)</option>
+                    <option value="earth">Earth (+1x)</option>
+                    <option value="batman">Batman (+250x)</option>
+                </select>
+                <button onclick="giveAllSprite()" style="background:#d32f2f;">Give To Everyone</button>
+            </div>
         </div>
 
         <div class="card">
@@ -234,6 +247,11 @@ HTML_TEMPLATE = """
         
         function triggerBoost(multiplier, minutes) {
             socket.emit('adminServerBoost', { multiplier: multiplier, minutes: minutes });
+        }
+
+        function giveAllSprite() {
+            const spriteKey = document.getElementById('admin-sprite-select').value;
+            socket.emit('adminGiveAllSprite', { spriteKey: spriteKey });
         }
 
         socket.on('newQuestion', p => {
@@ -312,8 +330,8 @@ def handle_register(data):
     conn.commit()
     conn.close()
 
-    active_sessions[request.sid] = username
     is_admin = (username.upper() == "ADMIN")
+    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin}
     emit('authResponse', {'success': True, 'is_admin': is_admin})
     emit('newQuestion', current_question, room=request.sid)
     emit('updatePlayers', get_all_online_players(), broadcast=True)
@@ -333,8 +351,8 @@ def handle_login(data):
         emit('authResponse', {'success': False, 'message': 'Invalid username or password!'})
         return
 
-    active_sessions[request.sid] = username
     is_admin = (username.upper() == "ADMIN" or password == "ADMINMODE")
+    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin}
     emit('authResponse', {'success': True, 'is_admin': is_admin})
     emit('newQuestion', current_question, room=request.sid)
     emit('updatePlayers', get_all_online_players(), broadcast=True)
@@ -342,8 +360,9 @@ def handle_login(data):
 @socketio.on('submitAnswer')
 def handle_answer(ans):
     global active_server_boost, boost_end_time
-    uname = active_sessions.get(request.sid)
-    if not uname: return
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    uname = session_info['username']
 
     if active_server_boost > 1 and time.time() > boost_end_time:
         active_server_boost = 1
@@ -379,8 +398,9 @@ def handle_answer(ans):
 
 @socketio.on('buySprite')
 def handle_buy(key):
-    uname = active_sessions.get(request.sid)
-    if not uname or key not in SPRITE_CATALOG: return
+    session_info = active_sessions.get(request.sid)
+    if not session_info or key not in SPRITE_CATALOG: return
+    uname = session_info['username']
 
     sprite = SPRITE_CATALOG[key]
     conn = sqlite3.connect('game.db')
@@ -412,8 +432,9 @@ def handle_buy(key):
 
 @socketio.on('randomSteal')
 def handle_steal():
-    uname = active_sessions.get(request.sid)
-    if not uname: return
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    uname = session_info['username']
 
     conn = sqlite3.connect('game.db')
     c = conn.cursor()
@@ -426,7 +447,7 @@ def handle_steal():
 
     c.execute("UPDATE users SET coins = coins - 25 WHERE username = ?", (uname,))
     
-    other_sids = [sid for sid, u in active_sessions.items() if sid != request.sid]
+    other_sids = [sid for sid, data in active_sessions.items() if sid != request.sid]
     if not other_sids:
         conn.commit()
         conn.close()
@@ -435,7 +456,7 @@ def handle_steal():
         return
 
     target_sid = random.choice(other_sids)
-    target_uname = active_sessions[target_sid]
+    target_uname = active_sessions[target_sid]['username']
 
     c.execute("SELECT coins FROM users WHERE username = ?", (target_uname,))
     target_row = c.fetchone()
@@ -461,8 +482,9 @@ def handle_steal():
 
 @socketio.on('submitCode')
 def handle_code(code):
-    uname = active_sessions.get(request.sid)
-    if not uname: return
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    uname = session_info['username']
     
     code = code.strip().upper() 
     conn = sqlite3.connect('game.db')
@@ -478,6 +500,7 @@ def handle_code(code):
     elif code == "ADMINMODE":
         c.execute("UPDATE users SET coins = coins + 99999, multiplier = 100 WHERE username = ?", (uname,))
         conn.commit()
+        active_sessions[request.sid]['is_admin'] = True
         conn.close()
         emit('alertMessage', "👑 ADMIN PRIVILEGES GRANTED!", room=request.sid)
         emit('adminGranted', room=request.sid)
@@ -490,8 +513,8 @@ def handle_code(code):
 @socketio.on('adminServerBoost')
 def handle_server_boost(data):
     global active_server_boost, boost_end_time
-    uname = active_sessions.get(request.sid)
-    if not uname or uname.upper() != "ADMIN": return
+    session_info = active_sessions.get(request.sid)
+    if not session_info or not session_info.get('is_admin'): return
     
     multiplier = int(data['multiplier'])
     minutes = int(data['minutes'])
@@ -500,6 +523,39 @@ def handle_server_boost(data):
     boost_end_time = time.time() + (minutes * 60)
     
     emit('alertMessage', f"🚀 SERVER BOOST ACTIVATED: {multiplier}x for {minutes} minutes!", broadcast=True)
+
+@socketio.on('adminGiveAllSprite')
+def handle_admin_give_all(data):
+    session_info = active_sessions.get(request.sid)
+    if not session_info or not session_info.get('is_admin'): return
+
+    sprite_key = data.get('spriteKey')
+    if sprite_key not in SPRITE_CATALOG: return
+
+    sprite = SPRITE_CATALOG[sprite_key]
+    
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    
+    # Fetch all registered users
+    c.execute("SELECT username, multiplier, sprites FROM users")
+    all_users = c.fetchall()
+
+    for u_row in all_users:
+        u_name, u_mult, u_sprites_str = u_row
+        new_mult = u_mult + sprite['mult_boost']
+        
+        current_sprites = u_sprites_str.split(',') if u_sprites_str else []
+        current_sprites.append(sprite['name'])
+        new_sprites_str = ','.join(current_sprites)
+
+        c.execute("UPDATE users SET multiplier = ?, sprites = ? WHERE username = ?", (new_mult, new_sprites_str, u_name))
+
+    conn.commit()
+    conn.close()
+
+    emit('alertMessage', f"🎁 ADMIN COMMAND: Gave {sprite['name']} (+{sprite['mult_boost']}x) to all players!", broadcast=True)
+    emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 @socketio.on('disconnect')
 def handle_disconnect():
