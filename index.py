@@ -40,12 +40,23 @@ HTML_TEMPLATE = """
     <title>Steal A Sprite</title>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 15px; background: #121212; color: #fff; text-align: center; }
-        .card { background: #1e1e1e; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        body { 
+            font-family: sans-serif; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #121212, #2c2c2c, #4a4a4a); 
+            background-attachment: fixed;
+            color: #fff; 
+            text-align: center; 
+        }
+        .card { background: rgba(30, 30, 30, 0.9); padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         button { background: #4CAF50; color: white; border: none; padding: 10px 12px; border-radius: 4px; margin: 4px; cursor: pointer; }
-        input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #444; margin-bottom: 5px;}
+        input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #444; margin-bottom: 5px; background: #222; color: #fff;}
         .admin-tag { color: #ff5252; font-weight: bold; }
         .admin-section { background: #2a1515; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
+        .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 10px; margin: 4px 0; background: #252525; border-radius: 4px; border-left: 4px solid #4CAF50; }
+        .leaderboard-row.top-1 { border-left-color: #ffd700; }
+        .leaderboard-row.top-2 { border-left-color: #c0c0c0; }
+        .leaderboard-row.top-3 { border-left-color: #cd7f32; }
     </style>
 </head>
 <body>
@@ -103,7 +114,12 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="card">
-            <h4>Leaderboard & Players</h4>
+            <h4>🏆 Global Leaderboard</h4>
+            <div id="leaderboard-list"></div>
+        </div>
+
+        <div class="card">
+            <h4>Active Players List</h4>
             <div id="players-list"></div>
         </div>
     </div>
@@ -113,6 +129,7 @@ HTML_TEMPLATE = """
 
         function joinGame() {
             const name = document.getElementById('name-input').value;
+            if(!name.trim()) return;
             socket.emit('joinGame', name);
             document.getElementById('join-screen').style.display = 'none';
             document.getElementById('game-screen').style.display = 'block';
@@ -155,13 +172,27 @@ HTML_TEMPLATE = """
         });
 
         socket.on('updatePlayers', players => {
-            let html = '';
-            for (let id in players) {
-                const p = players[id];
+            // Sort players by coins for leaderboard
+            let sortedPlayers = Object.values(players).sort((a, b) => b.coins - a.coins);
+
+            let lbHtml = '';
+            let rawHtml = '';
+            
+            sortedPlayers.forEach((p, index) => {
                 const adminText = p.is_admin ? '<span class="admin-tag">[ADMIN]</span> ' : '';
-                html += `<p>${adminText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${p.sprites.join(', ') || 'None'}</p>`;
-            }
-            document.getElementById('players-list').innerHTML = html;
+                const rankClass = index === 0 ? 'top-1' : (index === 1 ? 'top-2' : (index === 2 ? 'top-3' : ''));
+                
+                lbHtml += `
+                    <div class="leaderboard-row ${rankClass}">
+                        <span>#${index + 1} ${adminText}<b>${p.name}</b></span>
+                        <span>💰 ${p.coins}c | ⚡ ${p.multiplier}x</span>
+                    </div>`;
+                
+                rawHtml += `<p>${adminText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${p.sprites.join(', ') || 'None'}</p>`;
+            });
+
+            document.getElementById('leaderboard-list').innerHTML = lbHtml || '<p>No players yet</p>';
+            document.getElementById('players-list').innerHTML = rawHtml;
         });
     </script>
 </body>
