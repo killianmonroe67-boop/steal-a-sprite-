@@ -21,13 +21,13 @@ init_db()
 
 active_sessions = {}  # Tracks socket_id -> username currently logged in
 
-# Sprites permanently increase your multiplier when bought
+# Chapter 7 Season 3 Sprites Catalog (Infinite stackable purchases)
 SPRITE_CATALOG = {
-    'earth': {'name': 'Earth', 'price': 75, 'mult_boost': 2},
-    'sonic': {'name': 'Sonic', 'price': 150, 'mult_boost': 5},
-    'fire': {'name': 'Fire', 'price': 250, 'mult_boost': 10},
-    'grim': {'name': 'Grim', 'price': 400, 'mult_boost': 25},
-    'zeropoint': {'name': 'Zero Point', 'price': 600, 'mult_boost': 50}
+    'chronoknight': {'name': 'Chrono Knight', 'price': 100, 'mult_boost': 3},
+    'neonphantom': {'name': 'Neon Phantom', 'price': 250, 'mult_boost': 7},
+    'aetherstriker': {'name': 'Aether Striker', 'price': 500, 'mult_boost': 15},
+    'voidwalker': {'name': 'Void Walker', 'price': 1000, 'mult_boost': 35},
+    'cosmictitan': {'name': 'Cosmic Titan', 'price': 2500, 'mult_boost': 100}
 }
 
 current_question = {'num1': 0, 'num2': 0, 'answer': 0}
@@ -56,7 +56,7 @@ def get_all_online_players():
                 'name': uname,
                 'coins': coins,
                 'multiplier': mult,
-                'sprites': sprites_list,
+                'sprites': [s for s in sprites_list if s],
                 'is_admin': (uname.upper() == "ADMIN")
             }
     conn.close()
@@ -91,7 +91,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2>🎮 Steal A Sprite Live</h2>
+    <h2>🎮 Steal A Sprite (Ch 7 / S3)</h2>
     
     <div id="join-screen" class="card">
         <h3>Login or Register</h3>
@@ -109,12 +109,12 @@ HTML_TEMPLATE = """
         <p id="alert" style="color:#d81b60; font-weight:bold;"></p>
         
         <div class="card">
-            <h4>Shop & Multiplier Upgrades</h4>
-            <button onclick="buySprite('earth')">Earth (75c) [+2x]</button>
-            <button onclick="buySprite('sonic')">Sonic (150c) [+5x]</button>
-            <button onclick="buySprite('fire')">Fire (250c) [+10x]</button>
-            <button onclick="buySprite('grim')">Grim (400c) [+25x]</button>
-            <button onclick="buySprite('zeropoint')">Zero Point (600c) [+50x]</button>
+            <h4>Chapter 7 Season 3 Shop (Infinite Stack)</h4>
+            <button onclick="buySprite('chronoknight')">Chrono Knight (100c) [+3x]</button>
+            <button onclick="buySprite('neonphantom')">Neon Phantom (250c) [+7x]</button>
+            <button onclick="buySprite('aetherstriker')">Aether Striker (500c) [+15x]</button>
+            <button onclick="buySprite('voidwalker')">Void Walker (1000c) [+35x]</button>
+            <button onclick="buySprite('cosmictitan')">Cosmic Titan (2500c) [+100x]</button>
             <br><br>
             <button style="background:#e53935;" onclick="randomSteal()">Random Steal (25c)</button>
         </div>
@@ -140,11 +140,11 @@ HTML_TEMPLATE = """
 
             <div class="admin-section">
                 <p style="margin:5px 0; font-size:14px;"><b>Give Everyone a Sprite</b></p>
-                <button onclick="giveSpriteAll('earth')">Give Earth</button>
-                <button onclick="giveSpriteAll('sonic')">Give Sonic</button>
-                <button onclick="giveSpriteAll('fire')">Give Fire</button>
-                <button onclick="giveSpriteAll('grim')">Give Grim</button>
-                <button onclick="giveSpriteAll('zeropoint')">Give Zero Point</button>
+                <button onclick="giveSpriteAll('chronoknight')">Give Chrono Knight</button>
+                <button onclick="giveSpriteAll('neonphantom')">Give Neon Phantom</button>
+                <button onclick="giveSpriteAll('aetherstriker')">Give Aether Striker</button>
+                <button onclick="giveSpriteAll('voidwalker')">Give Void Walker</button>
+                <button onclick="giveSpriteAll('cosmictitan')">Give Cosmic Titan</button>
             </div>
         </div>
 
@@ -230,6 +230,17 @@ HTML_TEMPLATE = """
             document.getElementById('admin-panel').style.display = 'block';
         });
 
+        function formatSpritesWithCounts(spritesArray) {
+            if (!spritesArray || spritesArray.length === 0) return 'None';
+            let counts = {};
+            spritesArray.forEach(s => {
+                if (s) counts[s] = (counts[s] || 0) + 1;
+            });
+            return Object.entries(counts)
+                .map(([name, count]) => count > 1 ? `${name} (x${count})` : name)
+                .join(', ');
+        }
+
         socket.on('updatePlayers', players => {
             let sortedPlayers = Object.values(players).sort((a, b) => b.coins - a.coins);
 
@@ -246,7 +257,8 @@ HTML_TEMPLATE = """
                         <span>💰 ${p.coins}c | ⚡ ${p.multiplier}x</span>
                     </div>`;
                 
-                rawHtml += `<p>${adminText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${p.sprites.join(', ') || 'None'}</p>`;
+                const formattedSprites = formatSpritesWithCounts(p.sprites);
+                rawHtml += `<p>${adminText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${formattedSprites}</p>`;
             });
 
             document.getElementById('leaderboard-list').innerHTML = lbHtml || '<p>No players yet</p>';
@@ -361,15 +373,11 @@ def handle_buy(key):
         return
     coins, multiplier, sprites_str = row
     
-    current_sprites = sprites_str.split(',') if sprites_str else []
-    if sprite['name'] in current_sprites:
-        conn.close()
-        emit('alertMessage', "You already own this sprite!", room=request.sid)
-        return
-
     if coins >= sprite['price']:
         coins -= sprite['price']
         multiplier += sprite['mult_boost']
+        
+        current_sprites = sprites_str.split(',') if sprites_str else []
         current_sprites.append(sprite['name'])
         new_sprites_str = ','.join(current_sprites)
 
@@ -489,10 +497,9 @@ def handle_give_sprite_all(sprite_key):
 
     for u, sprites_str in all_users:
         current_sprites = sprites_str.split(',') if sprites_str else []
-        if sprite_name not in current_sprites:
-            current_sprites.append(sprite_name)
-            new_sprites_str = ','.join(current_sprites)
-            c.execute("UPDATE users SET multiplier = multiplier + ?, sprites = ? WHERE username = ?", (mult_add, new_sprites_str, u))
+        current_sprites.append(sprite_name)
+        new_sprites_str = ','.join(current_sprites)
+        c.execute("UPDATE users SET multiplier = multiplier + ?, sprites = ? WHERE username = ?", (mult_add, new_sprites_str, u))
             
     conn.commit()
     conn.close()
