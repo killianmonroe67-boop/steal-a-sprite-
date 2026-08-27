@@ -1,13 +1,25 @@
 import os
 import random
 import time
+import sqlite3
 from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-players = {}
+# Initialize SQLite Database for persistent user accounts
+def init_db():
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (username TEXT PRIMARY KEY, password TEXT, coins INTEGER, multiplier INTEGER, sprites TEXT)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+active_sessions = {}  # Tracks socket_id -> username currently logged in
 
 # Sprites permanently increase your multiplier when bought
 SPRITE_CATALOG = {
@@ -20,7 +32,6 @@ SPRITE_CATALOG = {
 
 current_question = {'num1': 0, 'num2': 0, 'answer': 0}
 
-# Server-wide boost state
 active_server_boost = 1
 boost_end_time = 0
 
@@ -30,6 +41,26 @@ def generate_question():
     current_question['answer'] = current_question['num1'] + current_question['num2']
 
 generate_question()
+
+def get_all_online_players():
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    players_data = {}
+    for sid, uname in active_sessions.items():
+        c.execute("SELECT coins, multiplier, sprites FROM users WHERE username = ?", (uname,))
+        row = c.fetchone()
+        if row:
+            coins, mult, sprites_str = row
+            sprites_list = sprites_str.split(',') if sprites_str else []
+            players_data[sid] = {
+                'name': uname,
+                'coins': coins,
+                'multiplier': mult,
+                'sprites': sprites_list,
+                'is_admin': (uname.upper() == "ADMIN")
+            }
+    conn.close()
+    return players_data
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -43,35 +74,39 @@ HTML_TEMPLATE = """
         body { 
             font-family: sans-serif; 
             padding: 15px; 
-            background: linear-gradient(135deg, #121212, #2c2c2c, #4a4a4a); 
+            background: linear-gradient(135deg, #ffffff, #e6e6e6, #b0b0b0); 
             background-attachment: fixed;
-            color: #fff; 
+            color: #121212; 
             text-align: center; 
         }
-        .card { background: rgba(30, 30, 30, 0.9); padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        button { background: #4CAF50; color: white; border: none; padding: 10px 12px; border-radius: 4px; margin: 4px; cursor: pointer; }
-        input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #444; margin-bottom: 5px; background: #222; color: #fff;}
-        .admin-tag { color: #ff5252; font-weight: bold; }
-        .admin-section { background: #2a1515; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
-        .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 10px; margin: 4px 0; background: #252525; border-radius: 4px; border-left: 4px solid #4CAF50; }
-        .leaderboard-row.top-1 { border-left-color: #ffd700; }
-        .leaderboard-row.top-2 { border-left-color: #c0c0c0; }
-        .leaderboard-row.top-3 { border-left-color: #cd7f32; }
+        .card { background: rgba(255, 255, 255, 0.95); padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; color: #121212; }
+        button { background: #4CAF50; color: white; border: none; padding: 10px 12px; border-radius: 4px; margin: 4px; cursor: pointer; font-weight: bold; }
+        input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 5px; background: #fff; color: #000; display: block; margin-left: auto; margin-right: auto;}
+        .admin-tag { color: #d32f2f; font-weight: bold; }
+        .admin-section { background: #ffebee; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
+        .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 10px; margin: 4px 0; background: #f2f2f2; border-radius: 4px; border-left: 4px solid #4CAF50; color: #121212; }
+        .leaderboard-row.top-1 { border-left-color: #ffd700; background: #fffde7; }
+        .leaderboard-row.top-2 { border-left-color: #c0c0c0; background: #f5f5f5; }
+        .leaderboard-row.top-3 { border-left-color: #cd7f32; background: #fbe9e7; }
     </style>
 </head>
 <body>
     <h2>🎮 Steal A Sprite Live</h2>
     
     <div id="join-screen" class="card">
-        <input type="text" id="name-input" placeholder="Enter your name">
-        <button onclick="joinGame()">Join Game</button>
+        <h3>Login or Register</h3>
+        <input type="text" id="username-input" placeholder="Username">
+        <input type="password" id="password-input" placeholder="Password">
+        <button onclick="loginAccount()">Log In</button>
+        <button onclick="registerAccount()" style="background:#2196F3;">Register Account</button>
+        <p id="auth-alert" style="color:#d32f2f; font-weight:bold;"></p>
     </div>
 
     <div id="game-screen" class="card" style="display:none;">
         <h3 id="question">Loading problem...</h3>
         <input type="number" id="answer-input" placeholder="Your answer">
         <button onclick="submitAnswer()">Submit</button>
-        <p id="alert" style="color:#ffeb3b; font-weight:bold;"></p>
+        <p id="alert" style="color:#d81b60; font-weight:bold;"></p>
         
         <div class="card">
             <h4>Shop & Multiplier Upgrades</h4>
@@ -91,7 +126,7 @@ HTML_TEMPLATE = """
         </div>
 
         <div id="admin-panel" class="card" style="display:none; border: 2px solid #ff5252;">
-            <h4 style="color: #ff5252;">👑 Admin Control Panel</h4>
+            <h4 style="color: #d32f2f;">👑 Admin Control Panel</h4>
             
             <div class="admin-section">
                 <p style="margin:5px 0; font-size:14px;"><b>Server Multiplier Boosts</b></p>
@@ -127,13 +162,37 @@ HTML_TEMPLATE = """
     <script>
         const socket = io();
 
-        function joinGame() {
-            const name = document.getElementById('name-input').value;
-            if(!name.trim()) return;
-            socket.emit('joinGame', name);
-            document.getElementById('join-screen').style.display = 'none';
-            document.getElementById('game-screen').style.display = 'block';
+        function loginAccount() {
+            const username = document.getElementById('username-input').value;
+            const password = document.getElementById('password-input').value;
+            if(!username || !password) {
+                document.getElementById('auth-alert').innerText = "Enter username and password!";
+                return;
+            }
+            socket.emit('login', {username, password});
         }
+
+        function registerAccount() {
+            const username = document.getElementById('username-input').value;
+            const password = document.getElementById('password-input').value;
+            if(!username || !password) {
+                document.getElementById('auth-alert').innerText = "Enter username and password!";
+                return;
+            }
+            socket.emit('register', {username, password});
+        }
+
+        socket.on('authResponse', data => {
+            if(data.success) {
+                document.getElementById('join-screen').style.display = 'none';
+                document.getElementById('game-screen').style.display = 'block';
+                if(data.is_admin) {
+                    document.getElementById('admin-panel').style.display = 'block';
+                }
+            } else {
+                document.getElementById('auth-alert').innerText = data.message;
+            }
+        });
 
         function submitAnswer() {
             const ans = document.getElementById('answer-input').value;
@@ -172,7 +231,6 @@ HTML_TEMPLATE = """
         });
 
         socket.on('updatePlayers', players => {
-            // Sort players by coins for leaderboard
             let sortedPlayers = Object.values(players).sort((a, b) => b.coins - a.coins);
 
             let lbHtml = '';
@@ -203,118 +261,210 @@ HTML_TEMPLATE = """
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-@socketio.on('joinGame')
-def handle_join(name):
-    players[request.sid] = {
-        'name': name,
-        'coins': 0,
-        'multiplier': 1,
-        'sprites': [],
-        'is_admin': False
-    }
-    emit('newQuestion', current_question)
-    emit('updatePlayers', players, broadcast=True)
+@socketio.on('register')
+def handle_register(data):
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    if not username or not password:
+        emit('authResponse', {'success': False, 'message': 'Fields cannot be empty.'})
+        return
+
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ?", (username,))
+    if c.fetchone():
+        conn.close()
+        emit('authResponse', {'success': False, 'message': 'Username already taken!'})
+        return
+
+    c.execute("INSERT INTO users (username, password, coins, multiplier, sprites) VALUES (?, ?, 0, 1, '')", (username, password))
+    conn.commit()
+    conn.close()
+
+    active_sessions[request.sid] = username
+    is_admin = (username.upper() == "ADMIN")
+    emit('authResponse', {'success': True, 'is_admin': is_admin})
+    emit('newQuestion', current_question, room=request.sid)
+    emit('updatePlayers', get_all_online_players(), broadcast=True)
+
+@socketio.on('login')
+def handle_login(data):
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT password FROM users WHERE username = ?", (username,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row or row[0] != password:
+        emit('authResponse', {'success': False, 'message': 'Invalid username or password!'})
+        return
+
+    active_sessions[request.sid] = username
+    is_admin = (username.upper() == "ADMIN" or password == "ADMINMODE")
+    emit('authResponse', {'success': True, 'is_admin': is_admin})
+    emit('newQuestion', current_question, room=request.sid)
+    emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 @socketio.on('submitAnswer')
 def handle_answer(ans):
     global active_server_boost, boost_end_time
-    p = players.get(request.sid)
-    if not p: return
-    
+    uname = active_sessions.get(request.sid)
+    if not uname: return
+
     if active_server_boost > 1 and time.time() > boost_end_time:
         active_server_boost = 1
 
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT coins, multiplier FROM users WHERE username = ?", (uname,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return
+    coins, multiplier = row
+
     try:
         if int(ans) == current_question['answer']:
-            earned = 10 * p['multiplier'] * active_server_boost
-            p['coins'] += earned
+            earned = 10 * multiplier * active_server_boost
+            coins += earned
+            c.execute("UPDATE users SET coins = ? WHERE username = ?", (coins, uname))
+            conn.commit()
+            conn.close()
+
             boost_text = f" (Server {active_server_boost}x Boost Active!)" if active_server_boost > 1 else ""
             emit('alertMessage', f"Correct! Earned {earned} coins{boost_text}.", room=request.sid)
             generate_question()
             emit('newQuestion', current_question, broadcast=True)
-            emit('updatePlayers', players, broadcast=True)
+            emit('updatePlayers', get_all_online_players(), broadcast=True)
         else:
+            conn.close()
             emit('alertMessage', "Wrong answer, try again!", room=request.sid)
     except ValueError:
+        conn.close()
         emit('alertMessage', "Please enter a number!", room=request.sid)
 
 @socketio.on('buySprite')
 def handle_buy(key):
-    p = players.get(request.sid)
-    if not p or key not in SPRITE_CATALOG: return
-    
+    uname = active_sessions.get(request.sid)
+    if not uname or key not in SPRITE_CATALOG: return
+
     sprite = SPRITE_CATALOG[key]
-    if p['coins'] >= sprite['price']:
-        p['coins'] -= sprite['price']
-        p['sprites'].append(sprite['name'])
-        p['multiplier'] += sprite['mult_boost']
-        emit('alertMessage', f"Bought {sprite['name']}! Multiplier is now {p['multiplier']}x!", room=request.sid)
-        emit('updatePlayers', players, broadcast=True)
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT coins, multiplier, sprites FROM users WHERE username = ?", (uname,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return
+    coins, multiplier, sprites_str = row
+    
+    current_sprites = sprites_str.split(',') if sprites_str else []
+    if sprite['name'] in current_sprites:
+        conn.close()
+        emit('alertMessage', "You already own this sprite!", room=request.sid)
+        return
+
+    if coins >= sprite['price']:
+        coins -= sprite['price']
+        multiplier += sprite['mult_boost']
+        current_sprites.append(sprite['name'])
+        new_sprites_str = ','.join(current_sprites)
+
+        c.execute("UPDATE users SET coins = ?, multiplier = ?, sprites = ? WHERE username = ?", (coins, multiplier, new_sprites_str, uname))
+        conn.commit()
+        conn.close()
+
+        emit('alertMessage', f"Bought {sprite['name']}! Multiplier is now {multiplier}x!", room=request.sid)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
     else:
+        conn.close()
         emit('alertMessage', "Not enough coins!", room=request.sid)
 
 @socketio.on('randomSteal')
 def handle_steal():
-    p = players.get(request.sid)
-    if not p: return
-    
-    if p['coins'] < 25:
+    uname = active_sessions.get(request.sid)
+    if not uname: return
+
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT coins FROM users WHERE username = ?", (uname,))
+    row = c.fetchone()
+    if not row or row[0] < 25:
+        conn.close()
         emit('alertMessage', "Need 25 coins to steal!", room=request.sid)
         return
-        
-    p['coins'] -= 25
-    other_sids = [sid for sid in players.keys() if sid != request.sid]
+
+    c.execute("UPDATE users SET coins = coins - 25 WHERE username = ?", (uname,))
     
+    other_sids = [sid for sid, u in active_sessions.items() if sid != request.sid]
     if not other_sids:
-        emit('alertMessage', "No one else to steal from!", room=request.sid)
-        emit('updatePlayers', players, broadcast=True)
+        conn.commit()
+        conn.close()
+        emit('alertMessage', "No one else online to steal from!", room=request.sid)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
         return
-        
+
     target_sid = random.choice(other_sids)
-    target = players[target_sid]
-    
+    target_uname = active_sessions[target_sid]
+
+    c.execute("SELECT coins FROM users WHERE username = ?", (target_uname,))
+    target_row = c.fetchone()
+    target_coins = target_row[0] if target_row else 0
+
     steal_amount = random.randint(10, 50)
-    if target['coins'] < steal_amount:
-        steal_amount = target['coins']
-        
+    if target_coins < steal_amount:
+        steal_amount = target_coins
+
     if steal_amount > 0:
-        target['coins'] -= steal_amount
-        p['coins'] += steal_amount
-        emit('alertMessage', f"Stole {steal_amount} coins from {target['name']}!", room=request.sid)
-        emit('alertMessage', f"{p['name']} stole {steal_amount} coins from you!", room=target_sid)
+        c.execute("UPDATE users SET coins = coins - ? WHERE username = ?", (steal_amount, target_uname))
+        c.execute("UPDATE users SET coins = coins + ? WHERE username = ?", (steal_amount, uname))
+        conn.commit()
+        conn.close()
+        emit('alertMessage', f"Stole {steal_amount} coins from {target_uname}!", room=request.sid)
+        emit('alertMessage', f"{uname} stole {steal_amount} coins from you!", room=target_sid)
     else:
-        emit('alertMessage', f"{target['name']} is broke!", room=request.sid)
-        
-    emit('updatePlayers', players, broadcast=True)
+        conn.commit()
+        conn.close()
+        emit('alertMessage', f"{target_uname} is broke!", room=request.sid)
+
+    emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 @socketio.on('submitCode')
 def handle_code(code):
-    p = players.get(request.sid)
-    if not p: return
+    uname = active_sessions.get(request.sid)
+    if not uname: return
     
     code = code.strip().upper() 
-    
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+
     if code == "FREECOINS":
-        p['coins'] += 500
+        c.execute("UPDATE users SET coins = coins + 500 WHERE username = ?", (uname,))
+        conn.commit()
+        conn.close()
         emit('alertMessage', "💰 CHEAT ACTIVATED: +500 Coins!", room=request.sid)
-        emit('updatePlayers', players, broadcast=True)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
         
     elif code == "ADMINMODE":
-        p['is_admin'] = True
-        p['coins'] += 99999
-        p['multiplier'] = 100
+        c.execute("UPDATE users SET coins = coins + 99999, multiplier = 100 WHERE username = ?", (uname,))
+        conn.commit()
+        conn.close()
         emit('alertMessage', "👑 ADMIN PRIVILEGES GRANTED!", room=request.sid)
         emit('adminGranted', room=request.sid)
-        emit('updatePlayers', players, broadcast=True)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
         
     else:
+        conn.close()
         emit('alertMessage', "Invalid code.", room=request.sid)
 
 @socketio.on('adminServerBoost')
 def handle_server_boost(data):
     global active_server_boost, boost_end_time
-    p = players.get(request.sid)
-    if not p or not p['is_admin']: return
+    uname = active_sessions.get(request.sid)
+    if not uname or uname.upper() != "ADMIN": return
     
     multiplier = int(data['multiplier'])
     minutes = int(data['minutes'])
@@ -326,24 +476,35 @@ def handle_server_boost(data):
 
 @socketio.on('adminGiveSpriteAll')
 def handle_give_sprite_all(sprite_key):
-    p = players.get(request.sid)
-    if not p or not p['is_admin'] or sprite_key not in SPRITE_CATALOG: return
+    uname = active_sessions.get(request.sid)
+    if not uname or uname.upper() != "ADMIN" or sprite_key not in SPRITE_CATALOG: return
     
     sprite_name = SPRITE_CATALOG[sprite_key]['name']
     mult_add = SPRITE_CATALOG[sprite_key]['mult_boost']
     
-    for sid in players:
-        players[sid]['sprites'].append(sprite_name)
-        players[sid]['multiplier'] += mult_add
+    conn = sqlite3.connect('game.db')
+    c = conn.cursor()
+    c.execute("SELECT username, sprites FROM users")
+    all_users = c.fetchall()
+
+    for u, sprites_str in all_users:
+        current_sprites = sprites_str.split(',') if sprites_str else []
+        if sprite_name not in current_sprites:
+            current_sprites.append(sprite_name)
+            new_sprites_str = ','.join(current_sprites)
+            c.execute("UPDATE users SET multiplier = multiplier + ?, sprites = ? WHERE username = ?", (mult_add, new_sprites_str, u))
+            
+    conn.commit()
+    conn.close()
         
     emit('alertMessage', f"🎁 ADMIN GIVEAWAY: Everyone received the {sprite_name} sprite!", broadcast=True)
-    emit('updatePlayers', players, broadcast=True)
+    emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    if request.sid in players:
-        del players[request.sid]
-        emit('updatePlayers', players, broadcast=True)
+    if request.sid in active_sessions:
+        del active_sessions[request.sid]
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
