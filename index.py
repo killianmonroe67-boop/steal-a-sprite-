@@ -21,13 +21,29 @@ init_db()
 
 active_sessions = {}  # Tracks socket_id -> username currently logged in
 
-# Fortnite-themed Sprites Catalog (Infinite stackable purchases)
+# Sprite catalog with Grim & Zero Point updated to 500x multiplier
 SPRITE_CATALOG = {
-    'jonesy': {'name': 'Agent Jones', 'price': 100, 'mult_boost': 3},
-    'peely': {'name': 'Pug Peely', 'price': 250, 'mult_boost': 7},
-    'aura': {'name': 'Aura', 'price': 500, 'mult_boost': 15},
-    'midas': {'name': 'Ascendant Midas', 'price': 1000, 'mult_boost': 35},
-    'foundation': {'name': 'The Foundation', 'price': 2500, 'mult_boost': 100}
+    'earth': {'name': 'Earth', 'price': 50, 'mult_boost': 1},
+    'fire': {'name': 'Fire', 'price': 75, 'mult_boost': 2},
+    'water': {'name': 'Water', 'price': 100, 'mult_boost': 3},
+    'grim': {'name': 'Grim', 'price': 15000, 'mult_boost': 500},
+    'zeropoint': {'name': 'Zero Point', 'price': 15000, 'mult_boost': 500},
+    'aura': {'name': 'Aura', 'price': 300, 'mult_boost': 7},
+    'king': {'name': 'King', 'price': 400, 'mult_boost': 10},
+    'sonic': {'name': 'Sonic', 'price': 500, 'mult_boost': 12},
+    'shadow': {'name': 'Shadow', 'price': 650, 'mult_boost': 15},
+    'klombo': {'name': 'Klombo', 'price': 800, 'mult_boost': 20},
+    'air': {'name': 'Air', 'price': 1000, 'mult_boost': 25},
+    'tails': {'name': 'Tails', 'price': 1250, 'mult_boost': 30},
+    'duck': {'name': 'Duck', 'price': 1500, 'mult_boost': 35},
+    'ghost': {'name': 'Ghost', 'price': 2000, 'mult_boost': 45},
+    'demon': {'name': 'Demon', 'price': 2500, 'mult_boost': 60},
+    'llama': {'name': 'Llama', 'price': 3000, 'mult_boost': 75},
+    'peely': {'name': 'Peely', 'price': 4000, 'mult_boost': 100},
+    'ironmouse': {'name': 'Ironmouse', 'price': 5000, 'mult_boost': 125},
+    'vinyjr': {'name': 'Vini Jr', 'price': 6500, 'mult_boost': 150},
+    'burntpeanut': {'name': 'Burnt Peanut', 'price': 8000, 'mult_boost': 200},
+    'batman': {'name': 'Batman', 'price': 10000, 'mult_boost': 250}
 }
 
 current_question = {'num1': 0, 'num2': 0, 'answer': 0}
@@ -68,22 +84,22 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steal A Sprite - Fortnite Edition</title>
+    <title>Steal A Sprite - Custom Edition</title>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
         body { 
             font-family: sans-serif; 
             padding: 15px; 
-            background: linear-gradient(135deg, #ffffff, #e6e6e6, #b0b0b0); 
-            background-attachment: fixed;
+            background: #ffffff; 
             color: #121212; 
             text-align: center; 
         }
-        .card { background: rgba(255, 255, 255, 0.95); padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); border: 1px solid #dcdcdc; color: #121212; }
+        .card { background: #f9f9f9; padding: 15px; margin: 10px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #dcdcdc; color: #121212; }
         button { background: #4CAF50; color: white; border: none; padding: 10px 12px; border-radius: 4px; margin: 4px; cursor: pointer; font-weight: bold; }
         input { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 5px; background: #fff; color: #000; display: block; margin-left: auto; margin-right: auto;}
         .admin-tag { color: #d32f2f; font-weight: bold; }
         .admin-section { background: #ffebee; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
+        .shop-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
         .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 10px; margin: 4px 0; background: #f2f2f2; border-radius: 4px; border-left: 4px solid #4CAF50; color: #121212; }
         .leaderboard-row.top-1 { border-left-color: #ffd700; background: #fffde7; }
         .leaderboard-row.top-2 { border-left-color: #c0c0c0; background: #f5f5f5; }
@@ -91,7 +107,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2>🎮 Steal A Sprite (Fortnite Edition)</h2>
+    <h2>🎮 Steal A Sprite (Custom Edition)</h2>
     
     <div id="join-screen" class="card">
         <h3>Login or Register</h3>
@@ -109,13 +125,31 @@ HTML_TEMPLATE = """
         <p id="alert" style="color:#d81b60; font-weight:bold;"></p>
         
         <div class="card">
-            <h4>Fortnite Shop (Infinite Stack)</h4>
-            <button onclick="buySprite('jonesy')">Agent Jones (100c) [+3x]</button>
-            <button onclick="buySprite('peely')">Pug Peely (250c) [+7x]</button>
-            <button onclick="buySprite('aura')">Aura (500c) [+15x]</button>
-            <button onclick="buySprite('midas')">Ascendant Midas (1000c) [+35x]</button>
-            <button onclick="buySprite('foundation')">The Foundation (2500c) [+100x]</button>
-            <br><br>
+            <h4>Sprite Shop (Infinite Stack)</h4>
+            <div class="shop-grid">
+                <button onclick="buySprite('earth')">Earth (50c) [+1x]</button>
+                <button onclick="buySprite('fire')">Fire (75c) [+2x]</button>
+                <button onclick="buySprite('water')">Water (100c) [+3x]</button>
+                <button onclick="buySprite('grim')" style="background:#8e24aa;">Grim (15000c) [+500x]</button>
+                <button onclick="buySprite('zeropoint')" style="background:#8e24aa;">Zero Point (15000c) [+500x]</button>
+                <button onclick="buySprite('aura')">Aura (300c) [+7x]</button>
+                <button onclick="buySprite('king')">King (400c) [+10x]</button>
+                <button onclick="buySprite('sonic')">Sonic (500c) [+12x]</button>
+                <button onclick="buySprite('shadow')">Shadow (650c) [+15x]</button>
+                <button onclick="buySprite('klombo')">Klombo (800c) [+20x]</button>
+                <button onclick="buySprite('air')">Air (1000c) [+25x]</button>
+                <button onclick="buySprite('tails')">Tails (1250c) [+30x]</button>
+                <button onclick="buySprite('duck')">Duck (1500c) [+35x]</button>
+                <button onclick="buySprite('ghost')">Ghost (2000c) [+45x]</button>
+                <button onclick="buySprite('demon')">Demon (2500c) [+60x]</button>
+                <button onclick="buySprite('llama')">Llama (3000c) [+75x]</button>
+                <button onclick="buySprite('peely')">Peely (4000c) [+100x]</button>
+                <button onclick="buySprite('ironmouse')">Ironmouse (5000c) [+125x]</button>
+                <button onclick="buySprite('vinyjr')">Vini Jr (6500c) [+150x]</button>
+                <button onclick="buySprite('burntpeanut')">Burnt Peanut (8000c) [+200x]</button>
+                <button onclick="buySprite('batman')">Batman (10000c) [+250x]</button>
+            </div>
+            <br>
             <button style="background:#e53935;" onclick="randomSteal()">Random Steal (25c)</button>
         </div>
 
@@ -131,20 +165,9 @@ HTML_TEMPLATE = """
             <div class="admin-section">
                 <p style="margin:5px 0; font-size:14px;"><b>Server Multiplier Boosts</b></p>
                 <button onclick="triggerBoost(2, 10)">2x (10m)</button>
-                <button onclick="triggerBoost(3, 10)">3x (10m)</button>
                 <button onclick="triggerBoost(5, 15)">5x (15m)</button>
                 <button onclick="triggerBoost(10, 15)">10x (15m)</button>
-                <button onclick="triggerBoost(25, 30)">25x (30m)</button>
                 <button onclick="triggerBoost(50, 30)">50x (30m)</button>
-            </div>
-
-            <div class="admin-section">
-                <p style="margin:5px 0; font-size:14px;"><b>Give Everyone a Sprite</b></p>
-                <button onclick="giveSpriteAll('jonesy')">Give Agent Jones</button>
-                <button onclick="giveSpriteAll('peely')">Give Pug Peely</button>
-                <button onclick="giveSpriteAll('aura')">Give Aura</button>
-                <button onclick="giveSpriteAll('midas')">Give Ascendant Midas</button>
-                <button onclick="giveSpriteAll('foundation')">Give The Foundation</button>
             </div>
         </div>
 
@@ -211,10 +234,6 @@ HTML_TEMPLATE = """
         
         function triggerBoost(multiplier, minutes) {
             socket.emit('adminServerBoost', { multiplier: multiplier, minutes: minutes });
-        }
-
-        function giveSpriteAll(spriteKey) {
-            socket.emit('adminGiveSpriteAll', spriteKey);
         }
 
         socket.on('newQuestion', p => {
@@ -481,31 +500,6 @@ def handle_server_boost(data):
     boost_end_time = time.time() + (minutes * 60)
     
     emit('alertMessage', f"🚀 SERVER BOOST ACTIVATED: {multiplier}x for {minutes} minutes!", broadcast=True)
-
-@socketio.on('adminGiveSpriteAll')
-def handle_give_sprite_all(sprite_key):
-    uname = active_sessions.get(request.sid)
-    if not uname or uname.upper() != "ADMIN" or sprite_key not in SPRITE_CATALOG: return
-    
-    sprite_name = SPRITE_CATALOG[sprite_key]['name']
-    mult_add = SPRITE_CATALOG[sprite_key]['mult_boost']
-    
-    conn = sqlite3.connect('game.db')
-    c = conn.cursor()
-    c.execute("SELECT username, sprites FROM users")
-    all_users = c.fetchall()
-
-    for u, sprites_str in all_users:
-        current_sprites = sprites_str.split(',') if sprites_str else []
-        current_sprites.append(sprite_name)
-        new_sprites_str = ','.join(current_sprites)
-        c.execute("UPDATE users SET multiplier = multiplier + ?, sprites = ? WHERE username = ?", (mult_add, new_sprites_str, u))
-            
-    conn.commit()
-    conn.close()
-        
-    emit('alertMessage', f"🎁 ADMIN GIVEAWAY: Everyone received the {sprite_name} sprite!", broadcast=True)
-    emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 @socketio.on('disconnect')
 def handle_disconnect():
