@@ -21,13 +21,13 @@ init_db()
 
 active_sessions = {}  # Tracks socket_id -> username currently logged in
 
-# Chapter 7 Season 3 Sprites Catalog (Infinite stackable purchases)
+# Fortnite-themed Sprites Catalog (Infinite stackable purchases)
 SPRITE_CATALOG = {
-    'chronoknight': {'name': 'Chrono Knight', 'price': 100, 'mult_boost': 3},
-    'neonphantom': {'name': 'Neon Phantom', 'price': 250, 'mult_boost': 7},
-    'aetherstriker': {'name': 'Aether Striker', 'price': 500, 'mult_boost': 15},
-    'voidwalker': {'name': 'Void Walker', 'price': 1000, 'mult_boost': 35},
-    'cosmictitan': {'name': 'Cosmic Titan', 'price': 2500, 'mult_boost': 100}
+    'jonesy': {'name': 'Agent Jones', 'price': 100, 'mult_boost': 3},
+    'peely': {'name': 'Pug Peely', 'price': 250, 'mult_boost': 7},
+    'aura': {'name': 'Aura', 'price': 500, 'mult_boost': 15},
+    'midas': {'name': 'Ascendant Midas', 'price': 1000, 'mult_boost': 35},
+    'foundation': {'name': 'The Foundation', 'price': 2500, 'mult_boost': 100}
 }
 
 current_question = {'num1': 0, 'num2': 0, 'answer': 0}
@@ -68,7 +68,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Steal A Sprite</title>
+    <title>Steal A Sprite - Fortnite Edition</title>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
         body { 
@@ -91,7 +91,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2>🎮 Steal A Sprite (Ch 7 / S3)</h2>
+    <h2>🎮 Steal A Sprite (Fortnite Edition)</h2>
     
     <div id="join-screen" class="card">
         <h3>Login or Register</h3>
@@ -109,12 +109,12 @@ HTML_TEMPLATE = """
         <p id="alert" style="color:#d81b60; font-weight:bold;"></p>
         
         <div class="card">
-            <h4>Chapter 7 Season 3 Shop (Infinite Stack)</h4>
-            <button onclick="buySprite('chronoknight')">Chrono Knight (100c) [+3x]</button>
-            <button onclick="buySprite('neonphantom')">Neon Phantom (250c) [+7x]</button>
-            <button onclick="buySprite('aetherstriker')">Aether Striker (500c) [+15x]</button>
-            <button onclick="buySprite('voidwalker')">Void Walker (1000c) [+35x]</button>
-            <button onclick="buySprite('cosmictitan')">Cosmic Titan (2500c) [+100x]</button>
+            <h4>Fortnite Shop (Infinite Stack)</h4>
+            <button onclick="buySprite('jonesy')">Agent Jones (100c) [+3x]</button>
+            <button onclick="buySprite('peely')">Pug Peely (250c) [+7x]</button>
+            <button onclick="buySprite('aura')">Aura (500c) [+15x]</button>
+            <button onclick="buySprite('midas')">Ascendant Midas (1000c) [+35x]</button>
+            <button onclick="buySprite('foundation')">The Foundation (2500c) [+100x]</button>
             <br><br>
             <button style="background:#e53935;" onclick="randomSteal()">Random Steal (25c)</button>
         </div>
@@ -140,11 +140,11 @@ HTML_TEMPLATE = """
 
             <div class="admin-section">
                 <p style="margin:5px 0; font-size:14px;"><b>Give Everyone a Sprite</b></p>
-                <button onclick="giveSpriteAll('chronoknight')">Give Chrono Knight</button>
-                <button onclick="giveSpriteAll('neonphantom')">Give Neon Phantom</button>
-                <button onclick="giveSpriteAll('aetherstriker')">Give Aether Striker</button>
-                <button onclick="giveSpriteAll('voidwalker')">Give Void Walker</button>
-                <button onclick="giveSpriteAll('cosmictitan')">Give Cosmic Titan</button>
+                <button onclick="giveSpriteAll('jonesy')">Give Agent Jones</button>
+                <button onclick="giveSpriteAll('peely')">Give Pug Peely</button>
+                <button onclick="giveSpriteAll('aura')">Give Aura</button>
+                <button onclick="giveSpriteAll('midas')">Give Ascendant Midas</button>
+                <button onclick="giveSpriteAll('foundation')">Give The Foundation</button>
             </div>
         </div>
 
