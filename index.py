@@ -59,7 +59,6 @@ SPRITE_VARIANTS = {
 }
 
 def roll_sprite_variant():
-    # Adjusted odds for easier testing: 50% Normal, 30% Shiny, 15% Golden, 5% Corrupted
     roll = random.random()
     if roll < 0.05:
         return 'Corrupted', 10
@@ -174,7 +173,6 @@ HTML_TEMPLATE = """
         #chat-box { height: 140px; overflow-y: scroll; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 8px; text-align: left; font-size: 14px; margin-bottom: 8px; }
         .chat-msg { margin: 4px 0; border-bottom: 1px solid #eee; padding-bottom: 2px; }
 
-        /* ASMR Keyboard Styles */
         .asmr-keyboard { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 10px; }
         .asmr-row { display: flex; gap: 4px; }
         .asmr-key { 
@@ -185,7 +183,6 @@ HTML_TEMPLATE = """
         .asmr-key:active, .asmr-key.active { transform: translateY(2px); box-shadow: 0 1px 0 #111; background: #00acc1; }
         .space-key { width: 120px; }
 
-        /* Flappy Canvas Styling */
         #flappyCanvas { background: #70c5ce; border-radius: 6px; border: 2px solid #333; cursor: pointer; }
     </style>
 </head>
@@ -207,7 +204,7 @@ HTML_TEMPLATE = """
             <div class="side-col">
                 <div class="card">
                     <h4>⌨️ ASMR Sound Board</h4>
-                    <p style="font-size: 12px; color: #666;">Press keys or tap below for crunchy mechanical keyboard ASMR sounds!</p>
+                    <p style="font-size: 12px; color: #666;">Press keys or tap below for mechanical keyboard ASMR sounds!</p>
                     <div class="asmr-keyboard" id="keyboard-visual">
                         <div class="asmr-row">
                             <div class="asmr-key" data-key="q">Q</div><div class="asmr-key" data-key="w">W</div><div class="asmr-key" data-key="e">E</div>
@@ -294,6 +291,12 @@ HTML_TEMPLATE = """
                     <h4 style="color: #d32f2f;">👑 Admin Control Panel</h4>
                     
                     <div class="admin-section">
+                        <p style="margin:5px 0; font-size:14px;"><b>🔨 Ban Hammer</b></p>
+                        <input type="text" id="admin-ban-target" placeholder="Username to ban" style="width:80%;">
+                        <button onclick="adminBanPlayer()" style="background:#d32f2f;">Swing Ban Hammer</button>
+                    </div>
+
+                    <div class="admin-section" style="margin-top: 10px;">
                         <p style="margin:5px 0; font-size:14px;"><b>Server Multiplier Boosts</b></p>
                         <button onclick="triggerBoost(2, 10)">2x (10m)</button>
                         <button onclick="triggerBoost(5, 15)">5x (15m)</button>
@@ -305,7 +308,7 @@ HTML_TEMPLATE = """
 
                     <div class="admin-section" style="margin-top: 10px;">
                         <p style="margin:5px 0; font-size:14px;"><b>🎉 Lucky Giveaway Event</b></p>
-                        <button onclick="triggerGiveawayTime()" style="background:#d32f2f; font-size:14px; padding:10px;">Start Lucky Giveaway (10B Coins every 10m to random player)</button>
+                        <button onclick="triggerGiveawayTime()" style="background:#d32f2f; font-size:14px; padding:10px;">Start Lucky Giveaway (10B Coins every 10m)</button>
                     </div>
 
                     <div class="admin-section" style="margin-top: 10px;">
@@ -358,7 +361,6 @@ HTML_TEMPLATE = """
     <script>
         const socket = io();
 
-        // AUTH
         function loginAccount() {
             const username = document.getElementById('username-input').value;
             const password = document.getElementById('password-input').value;
@@ -392,7 +394,6 @@ HTML_TEMPLATE = """
             }
         });
 
-        // ASMR SOUND GENERATOR USING WEB AUDIO API
         let audioCtx = null;
         function playAsmrSound() {
             try {
@@ -434,7 +435,6 @@ HTML_TEMPLATE = """
             }
         });
 
-        // FLAPPY BIRD MINIGAME
         let flappyCanvas, fCtx;
         let birdY = 150, birdV = 0, gravity = 0.2, jump = -4;
         let pipes = [];
@@ -520,7 +520,6 @@ HTML_TEMPLATE = """
             requestAnimationFrame(flappyLoop);
         }
 
-        // GAME SOCKET EVENTS
         function submitAnswer() {
             const ans = document.getElementById('answer-input').value;
             socket.emit('submitAnswer', ans);
@@ -562,6 +561,23 @@ HTML_TEMPLATE = """
             socket.emit('respondTrade', { accept });
             document.getElementById('trade-notification').innerHTML = '';
         }
+
+        function adminBanPlayer() {
+            const target = document.getElementById('admin-ban-target').value.trim();
+            if(!target) {
+                alert("Enter a username to ban!");
+                return;
+            }
+            const enteredCode = prompt("Enter Admin Code:");
+            if(enteredCode) {
+                socket.emit('admin_ban', { target: target, code: enteredCode });
+            }
+        }
+
+        socket.on('player_banned', data => {
+            alert("You have been banned by the admin!");
+            window.location.href = "https://www.google.com";
+        });
 
         function triggerBoost(multiplier, minutes) {
             socket.emit('adminServerBoost', { multiplier: multiplier, minutes: minutes });
@@ -775,7 +791,6 @@ def handle_buy(key):
     if coins >= sprite['price']:
         coins -= sprite['price']
         
-        # Roll for variant
         variant_name, variant_mult = roll_sprite_variant()
         final_mult_boost = sprite['mult_boost'] * variant_mult
         multiplier += final_mult_boost
@@ -803,7 +818,7 @@ def handle_buy_shield():
     uname = session_info['username']
 
     shield_cost = 250
-    shield_duration = 300  # 5 minutes
+    shield_duration = 300
 
     conn = sqlite3.connect('game.db')
     c = conn.cursor()
@@ -1006,6 +1021,29 @@ def handle_trade_response(data):
     emit('alertMessage', f"Successful trade with {sender_uname}!", room=target_sid)
     emit('updatePlayers', get_all_online_players(), broadcast=True)
 
+@socketio.on('admin_ban')
+def handle_admin_ban(data):
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    
+    target_uname = data.get('target', '').strip()
+    admin_code = data.get('code', '')
+    
+    if session_info.get('is_admin') or admin_code == '0340':
+        target_sid = None
+        for sid, sinfo in active_sessions.items():
+            if sinfo['username'] == target_uname:
+                target_sid = sid
+                break
+        
+        if target_sid:
+            emit('player_banned', {'target': target_uname}, room=target_sid)
+            emit('alertMessage', f"🔨 Banned player {target_uname}!", room=request.sid)
+        else:
+            emit('alertMessage', f"Player {target_uname} is not online.", room=request.sid)
+    else:
+        emit('alertMessage', "Invalid admin code! (Correct code: 0340)", room=request.sid)
+
 @socketio.on('sendChatMessage')
 def handle_chat_message(message):
     session_info = active_sessions.get(request.sid)
@@ -1167,5 +1205,5 @@ def handle_disconnect():
         emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 if __name__ == '__main__':
-    port = int(os.environ.fget('PORT', 5000) if hasattr(os.environ, 'fget') else os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
