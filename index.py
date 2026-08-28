@@ -59,13 +59,13 @@ SPRITE_VARIANTS = {
 }
 
 def roll_sprite_variant():
-    # Odds: 70% Normal, 20% Shiny, 8% Golden, 2% Corrupted
+    # Adjusted odds for easier testing: 50% Normal, 30% Shiny, 15% Golden, 5% Corrupted
     roll = random.random()
-    if roll < 0.02:
+    if roll < 0.05:
         return 'Corrupted', 10
-    elif roll < 0.10:
+    elif roll < 0.20:
         return 'Golden', 5
-    elif roll < 0.30:
+    elif roll < 0.50:
         return 'Shiny', 2
     else:
         return 'Normal', 1
@@ -627,7 +627,13 @@ HTML_TEMPLATE = """
                 if (s) counts[s] = (counts[s] || 0) + 1;
             });
             return Object.entries(counts)
-                .map(([name, count]) => count > 1 ? `${name} (x${count})` : name)
+                .map(([name, count]) => {
+                    let displayName = count > 1 ? `${name} (x${count})` : name;
+                    if (name.startsWith('Shiny ')) return `<span style="color: #00acc1; font-weight: bold;">${displayName}</span>`;
+                    if (name.startsWith('Golden ')) return `<span style="color: #d4af37; font-weight: bold;">${displayName}</span>`;
+                    if (name.startsWith('Corrupted ')) return `<span style="color: #8e24aa; font-weight: bold;">${displayName}</span>`;
+                    return displayName;
+                })
                 .join(', ');
         }
 
