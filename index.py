@@ -54,6 +54,7 @@ current_question = {'num1': 0, 'num2': 0, 'answer': 0}
 
 active_server_boost = 1
 boost_end_time = 0
+giveaway_task_active = False
 
 def generate_question():
     current_question['num1'] = random.randint(1, 20)
@@ -274,6 +275,17 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="admin-section" style="margin-top: 10px;">
+                        <p style="margin:5px 0; font-size:14px;"><b>🎉 Lucky Giveaway Event</b></p>
+                        <button onclick="triggerGiveawayTime()" style="background:#d32f2f; font-size:14px; padding:10px;">Start Lucky Giveaway (10B Coins every 10m to random player)</button>
+                    </div>
+
+                    <div class="admin-section" style="margin-top: 10px;">
+                        <p style="margin:5px 0; font-size:14px;"><b>Quick Coin Grants</b></p>
+                        <button onclick="adminGiveCoinsAmount(100)" style="background:#d32f2f;">Give 100 Coins (All)</button>
+                        <button onclick="adminGiveCoinsAmount(1000)" style="background:#d32f2f;">Give 1000 Coins (All)</button>
+                    </div>
+
+                    <div class="admin-section" style="margin-top: 10px;">
                         <p style="margin:5px 0; font-size:14px;"><b>Give Sprite To All Players</b></p>
                         <select id="admin-sprite-select">
                             <option value="grim">Grim (+500x)</option>
@@ -285,7 +297,7 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="admin-section" style="margin-top: 10px;">
-                        <p style="margin:5px 0; font-size:14px;"><b>Give Coins</b></p>
+                        <p style="margin:5px 0; font-size:14px;"><b>Custom Give Coins</b></p>
                         <input type="text" id="admin-coin-target" placeholder="Username (or leave blank for ALL)" style="width:80%;">
                         <input type="number" id="admin-coin-amount" placeholder="Coin Amount" style="width:80%;">
                         <button onclick="adminGiveCoins()" style="background:#d32f2f;">Give Coins</button>
@@ -359,7 +371,6 @@ HTML_TEMPLATE = """
                 if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 if(audioCtx.state === 'suspended') audioCtx.resume();
                 
-                // Mechanical switch click simulation
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 
@@ -378,7 +389,6 @@ HTML_TEMPLATE = """
             } catch(e) {}
         }
 
-        // Attach listeners to ASMR keyboard
         document.querySelectorAll('.asmr-key').forEach(key => {
             key.addEventListener('click', () => {
                 playAsmrSound();
@@ -448,24 +458,20 @@ HTML_TEMPLATE = """
 
         function drawFlappy() {
             if(!fCtx) return;
-            // Background
             fCtx.fillStyle = '#70c5ce';
             fCtx.fillRect(0, 0, flappyCanvas.width, flappyCanvas.height);
             
-            // Bird
             fCtx.fillStyle = '#ffeb3b';
             fCtx.beginPath();
             fCtx.arc(20, birdY, 8, 0, Math.PI * 2);
             fCtx.fill();
             
-            // Pipes
             fCtx.fillStyle = '#4caf50';
             pipes.forEach(p => {
                 fCtx.fillRect(p.x, 0, 25, p.top);
                 fCtx.fillRect(p.x, p.top + p.gap, 25, flappyCanvas.height - (p.top + p.gap));
             });
             
-            // Score
             fCtx.fillStyle = '#ffffff';
             fCtx.font = 'bold 14px sans-serif';
             fCtx.fillText(`Score: ${flappyScore}`, 10, 20);
@@ -533,9 +539,17 @@ HTML_TEMPLATE = """
             socket.emit('adminServerBoost', { multiplier: multiplier, minutes: minutes });
         }
 
+        function triggerGiveawayTime() {
+            socket.emit('adminGiveawayTime');
+        }
+
         function giveAllSprite() {
             const spriteKey = document.getElementById('admin-sprite-select').value;
             socket.emit('adminGiveAllSprite', { spriteKey: spriteKey });
+        }
+
+        function adminGiveCoinsAmount(amount) {
+            socket.emit('adminGiveCoins', { target: '', amount: amount });
         }
 
         function adminGiveCoins() {
@@ -1007,6 +1021,42 @@ def handle_server_boost(data):
     boost_end_time = time.time() + (minutes * 60)
     
     emit('alertMessage', f"🚀 SERVER BOOST ACTIVATED: {multiplier}x for {minutes} minutes!", broadcast=True)
+
+@socketio.on('adminGiveawayTime')
+def handle_admin_giveaway_time():
+    global giveaway_task_active
+    session_info = active_sessions.get(request.sid)
+    if not session_info or not session_info.get('is_admin'): return
+
+    def run_giveaway_cycle():
+        global giveaway_task_active
+        while giveaway_task_active:
+            online_sids = list(active_sessions.keys())
+            if online_sids:
+                lucky_sid = random.choice(online_sids)
+                lucky_uname = active_sessions[lucky_sid]['username']
+                
+                conn = sqlite3.connect('game.db')
+                c = conn.cursor()
+                c.execute("UPDATE users SET coins = coins + 10000000000 WHERE username = ?", (lucky_uname,))
+                conn.commit()
+                conn.close()
+
+                emit('alertMessage', f"🎉 LUCKY GIVEAWAY! {lucky_uname} just won 10,000,000,000 coins!", broadcast=True)
+                emit('updatePlayers', get_all_online_players(), broadcast=True)
+            
+            for _ in range(600):
+                if not giveaway_task_active:
+                    break
+                socketio.sleep(1)
+
+    if not giveaway_task_active:
+        giveaway_task_active = True
+        socketio.start_background_task(run_giveaway_cycle)
+        emit('alertMessage', "🎉 Lucky Giveaway Time started! Every 10 minutes, a random player will win 10,000,000,000 coins.", broadcast=True)
+    else:
+        giveaway_task_active = False
+        emit('alertMessage', "🛑 Lucky Giveaway Time stopped.", broadcast=True)
 
 @socketio.on('adminGiveAllSprite')
 def handle_admin_give_all(data):
