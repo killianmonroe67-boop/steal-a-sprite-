@@ -50,6 +50,35 @@ SPRITE_CATALOG = {
 
 SPRITE_NAME_TO_MULT = {v['name']: v['mult_boost'] for v in SPRITE_CATALOG.values()}
 
+# Sprite Variants System
+SPRITE_VARIANTS = {
+    'Normal': {'mult_multiplier': 1},
+    'Shiny': {'mult_multiplier': 2},
+    'Golden': {'mult_multiplier': 5},
+    'Corrupted': {'mult_multiplier': 10}
+}
+
+def roll_sprite_variant():
+    # Odds: 70% Normal, 20% Shiny, 8% Golden, 2% Corrupted
+    roll = random.random()
+    if roll < 0.02:
+        return 'Corrupted', 10
+    elif roll < 0.10:
+        return 'Golden', 5
+    elif roll < 0.30:
+        return 'Shiny', 2
+    else:
+        return 'Normal', 1
+
+def get_sprite_multiplier_value(sprite_full_name):
+    for variant in ['Shiny', 'Golden', 'Corrupted']:
+        if sprite_full_name.startswith(variant + ' '):
+            base_name = sprite_full_name[len(variant)+1:]
+            base_mult = SPRITE_NAME_TO_MULT.get(base_name, 1)
+            variant_multiplier = SPRITE_VARIANTS[variant]['mult_multiplier']
+            return base_mult * variant_multiplier
+    return SPRITE_NAME_TO_MULT.get(sprite_full_name, 1)
+
 current_question = {'num1': 0, 'num2': 0, 'answer': 0}
 
 active_server_boost = 1
@@ -739,17 +768,23 @@ def handle_buy(key):
     
     if coins >= sprite['price']:
         coins -= sprite['price']
-        multiplier += sprite['mult_boost']
+        
+        # Roll for variant
+        variant_name, variant_mult = roll_sprite_variant()
+        final_mult_boost = sprite['mult_boost'] * variant_mult
+        multiplier += final_mult_boost
+        
+        item_full_name = f"{variant_name} {sprite['name']}" if variant_name != 'Normal' else sprite['name']
         
         current_sprites = sprites_str.split(',') if sprites_str else []
-        current_sprites.append(sprite['name'])
+        current_sprites.append(item_full_name)
         new_sprites_str = ','.join(current_sprites)
 
         c.execute("UPDATE users SET coins = ?, multiplier = ?, sprites = ? WHERE username = ?", (coins, multiplier, new_sprites_str, uname))
         conn.commit()
         conn.close()
 
-        emit('alertMessage', f"Bought {sprite['name']}! Multiplier is now {multiplier}x!", room=request.sid)
+        emit('alertMessage', f"Bought {item_full_name}! Multiplier is now {multiplier}x!", room=request.sid)
         emit('updatePlayers', get_all_online_players(), broadcast=True)
     else:
         conn.close()
@@ -845,7 +880,7 @@ def handle_steal_sprite():
     target_sprites.remove(stolen_sprite)
     new_target_sprites_str = ','.join(target_sprites)
     
-    mult_value = SPRITE_NAME_TO_MULT.get(stolen_sprite, 1)
+    mult_value = get_sprite_multiplier_value(stolen_sprite)
     new_target_mult = max(1, target_mult - mult_value)
     new_my_mult = my_mult + mult_value
 
@@ -949,9 +984,8 @@ def handle_trade_response(data):
     r_sprites.remove(requested_sprite)
     r_sprites.append(offered_sprite)
 
-    sprite_vals = SPRITE_NAME_TO_MULT
-    offered_val = sprite_vals.get(offered_sprite, 0)
-    requested_val = sprite_vals.get(requested_sprite, 0)
+    offered_val = get_sprite_multiplier_value(offered_sprite)
+    requested_val = get_sprite_multiplier_value(requested_sprite)
 
     new_s_mult = s_mult - offered_val + requested_val
     new_r_mult = r_mult - requested_val + offered_val
@@ -995,11 +1029,11 @@ def handle_code(code):
         emit('updatePlayers', get_all_online_players(), broadcast=True)
         
     elif code == "ADMINMODE":
-        c.execute("UPDATE users SET coins = coins + 99999, multiplier = 100 WHERE username = ?", (uname,))
+        c.execute("UPDATE users SET coins = coins + 99999, multiplier = multiplier + 100 WHERE username = ?", (uname,))
         conn.commit()
         active_sessions[request.sid]['is_admin'] = True
         conn.close()
-        emit('alertMessage', "👑 ADMIN PRIVILEGES GRANTED!", room=request.sid)
+        emit('alertMessage', "👑 ADMIN PRIVILEGES GRANTED (+100x Multiplier Bonus)!", room=request.sid)
         emit('adminGranted', room=request.sid)
         emit('updatePlayers', get_all_online_players(), broadcast=True)
         
@@ -1127,5 +1161,5 @@ def handle_disconnect():
         emit('updatePlayers', get_all_online_players(), broadcast=True)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.fget('PORT', 5000) if hasattr(os.environ, 'fget') else os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
