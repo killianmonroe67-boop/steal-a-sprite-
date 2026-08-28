@@ -19,7 +19,7 @@ def init_db():
 
 init_db()
 
-active_sessions = {}  # Tracks socket_id -> {'username': str, 'is_admin': bool}
+active_sessions = {}  # Tracks socket_id -> {'username': str, 'is_admin': bool, 'is_owner': bool}
 active_trades = {}    # Tracks target_sid -> trade payload
 
 # Sprite catalog including Shields
@@ -98,6 +98,7 @@ def get_all_online_players():
     for sid, data in active_sessions.items():
         uname = data['username']
         is_admin = data['is_admin']
+        is_owner = data['is_owner']
         c.execute("SELECT coins, multiplier, sprites, shield_until FROM users WHERE username = ?", (uname,))
         row = c.fetchone()
         if row:
@@ -110,6 +111,7 @@ def get_all_online_players():
                 'multiplier': mult,
                 'sprites': [s for s in sprites_list if s],
                 'is_admin': is_admin,
+                'is_owner': is_owner,
                 'is_shielded': is_shielded
             }
     conn.close()
@@ -161,9 +163,11 @@ HTML_TEMPLATE = """
         }
         button { background: #4CAF50; color: white; border: none; padding: 8px 10px; border-radius: 4px; margin: 3px; cursor: pointer; font-weight: bold; }
         input, select { padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; margin-bottom: 5px; background: #fff; color: #000; display: block; margin-left: auto; margin-right: auto;}
+        .owner-tag { color: #ff8f00; font-weight: bold; text-shadow: 0 0 2px rgba(255,143,0,0.5); }
         .admin-tag { color: #d32f2f; font-weight: bold; }
         .shield-tag { color: #00acc1; font-weight: bold; }
         .admin-section { background: #ffebee; border: 2px solid #ff5252; padding: 10px; margin-top: 10px; border-radius: 6px; }
+        .owner-section { background: #fff8e1; border: 2px solid #ff8f00; padding: 10px; margin-top: 10px; border-radius: 6px; }
         .shop-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
         .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 10px; margin: 4px 0; background: #f2f2f2; border-radius: 4px; border-left: 4px solid #4CAF50; color: #121212; }
         .leaderboard-row.top-1 { border-left-color: #ffd700; background: #fffde7; }
@@ -287,6 +291,29 @@ HTML_TEMPLATE = """
                     <button onclick="submitSecretCode()" style="background:#8e24aa;">Redeem</button>
                 </div>
 
+                <!-- OWNER PANEL (Super-Admin Level) -->
+                <div id="owner-panel" class="card" style="display:none; border: 2px solid #ff8f00;">
+                    <h4 style="color: #ff8f00;">👑⚡ Owner Master Control Panel</h4>
+                    
+                    <div class="owner-section">
+                        <p style="margin:5px 0; font-size:14px;"><b>🌌 God Mode / Multiplier Control</b></p>
+                        <input type="text" id="owner-target-user" placeholder="Target Username" style="width:80%;">
+                        <input type="number" id="owner-set-mult" placeholder="Exact Multiplier Value" style="width:80%;">
+                        <button onclick="ownerSetMultiplier()" style="background:#ff8f00;">Override Multiplier</button>
+                    </div>
+
+                    <div class="owner-section" style="margin-top: 10px;">
+                        <p style="margin:5px 0; font-size:14px;"><b>🧹 Global Server Wipe</b></p>
+                        <button onclick="ownerWipeServers()" style="background:#e65100; font-size:13px; padding:10px;">🚨 Wipe All Coins & Inventories</button>
+                    </div>
+
+                    <div class="owner-section" style="margin-top: 10px;">
+                        <p style="margin:5px 0; font-size:14px;"><b>⚡ Server-Wide Kick</b></p>
+                        <button onclick="ownerKickAll()" style="background:#ef6c00;">Kick All Online Players</button>
+                    </div>
+                </div>
+
+                <!-- ADMIN PANEL -->
                 <div id="admin-panel" class="card" style="display:none; border: 2px solid #ff5252;">
                     <h4 style="color: #d32f2f;">👑 Admin Control Panel</h4>
                     
@@ -387,6 +414,10 @@ HTML_TEMPLATE = """
                 document.getElementById('game-screen').style.display = 'block';
                 if(data.is_admin) {
                     document.getElementById('admin-panel').style.display = 'block';
+                }
+                if(data.is_owner) {
+                    document.getElementById('owner-panel').style.display = 'block';
+                    document.getElementById('admin-panel').style.display = 'block'; // Owners get admin access too
                 }
                 initFlappy();
             } else {
@@ -575,9 +606,36 @@ HTML_TEMPLATE = """
         }
 
         socket.on('player_banned', data => {
-            alert("You have been banned by the admin!");
+            alert("You have been banned!");
             window.location.href = "https://www.google.com";
         });
+
+        function ownerSetMultiplier() {
+            const target = document.getElementById('owner-target-user').value.trim();
+            const mult = parseInt(document.getElementById('owner-set-mult').value);
+            const ownerCode = prompt("Enter Owner Master Code:");
+            if(target && !isNaN(mult) && ownerCode) {
+                socket.emit('owner_set_multiplier', { target, mult, code: ownerCode });
+            } else {
+                alert("Please fill out target username, multiplier, and owner code!");
+            }
+        }
+
+        function ownerWipeServers() {
+            if(confirm("WARNING: This will wipe all user coins and inventories! Are you sure?")) {
+                const ownerCode = prompt("Enter Owner Master Code:");
+                if(ownerCode) {
+                    socket.emit('owner_wipe_db', { code: ownerCode });
+                }
+            }
+        }
+
+        function ownerKickAll() {
+            const ownerCode = prompt("Enter Owner Master Code:");
+            if(ownerCode) {
+                socket.emit('owner_kick_all', { code: ownerCode });
+            }
+        }
 
         function triggerBoost(multiplier, minutes) {
             socket.emit('adminServerBoost', { multiplier: multiplier, minutes: minutes });
@@ -630,6 +688,11 @@ HTML_TEMPLATE = """
             document.getElementById('admin-panel').style.display = 'block';
         });
 
+        socket.on('ownerGranted', () => {
+            document.getElementById('owner-panel').style.display = 'block';
+            document.getElementById('admin-panel').style.display = 'block';
+        });
+
         socket.on('receiveChatMessage', data => {
             const chatBox = document.getElementById('chat-box');
             chatBox.innerHTML += `<div class="chat-msg"><b>${data.username}</b>: ${data.message}</div>`;
@@ -660,18 +723,19 @@ HTML_TEMPLATE = """
             let rawHtml = '';
             
             sortedPlayers.forEach((p, index) => {
-                const adminText = p.is_admin ? '<span class="admin-tag">[ADMIN]</span> ' : '';
+                const ownerText = p.is_owner ? '<span class="owner-tag">[OWNER]</span> ' : '';
+                const adminText = (!p.is_owner && p.is_admin) ? '<span class="admin-tag">[ADMIN]</span> ' : '';
                 const shieldText = p.is_shielded ? '<span class="shield-tag">[🛡️ SHIELDED]</span> ' : '';
                 const rankClass = index === 0 ? 'top-1' : (index === 1 ? 'top-2' : (index === 2 ? 'top-3' : ''));
                 
                 lbHtml += `
                     <div class="leaderboard-row ${rankClass}">
-                        <span>#${index + 1} ${adminText}${shieldText}<b>${p.name}</b></span>
+                        <span>#${index + 1} ${ownerText}${adminText}${shieldText}<b>${p.name}</b></span>
                         <span>💰 ${p.coins}c | ⚡ ${p.multiplier}x</span>
                     </div>`;
                 
                 const formattedSprites = formatSpritesWithCounts(p.sprites);
-                rawHtml += `<p>${adminText}${shieldText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${formattedSprites}</p>`;
+                rawHtml += `<p>${ownerText}${adminText}${shieldText}<b>${p.name}</b> | Coins: ${p.coins} | Mult: ${p.multiplier}x | Sprites: ${formattedSprites}</p>`;
             });
 
             document.getElementById('leaderboard-list').innerHTML = lbHtml || '<p>No players yet</p>';
@@ -706,9 +770,11 @@ def handle_register(data):
     conn.commit()
     conn.close()
 
-    is_admin = (username.upper() == "ADMIN")
-    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin}
-    emit('authResponse', {'success': True, 'is_admin': is_admin})
+    is_owner = (username.upper() == "OWNER")
+    is_admin = (username.upper() == "ADMIN" or is_owner)
+    
+    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin, 'is_owner': is_owner}
+    emit('authResponse', {'success': True, 'is_admin': is_admin, 'is_owner': is_owner})
     emit('newQuestion', current_question, room=request.sid)
     emit('updatePlayers', get_all_online_players(), broadcast=True)
 
@@ -727,9 +793,11 @@ def handle_login(data):
         emit('authResponse', {'success': False, 'message': 'Invalid username or password!'})
         return
 
-    is_admin = (username.upper() == "ADMIN" or password == "ADMINMODE")
-    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin}
-    emit('authResponse', {'success': True, 'is_admin': is_admin})
+    is_owner = (username.upper() == "OWNER" or password == "OWNERMODE")
+    is_admin = (username.upper() == "ADMIN" or password == "ADMINMODE" or is_owner)
+    
+    active_sessions[request.sid] = {'username': username, 'is_admin': is_admin, 'is_owner': is_owner}
+    emit('authResponse', {'success': True, 'is_admin': is_admin, 'is_owner': is_owner})
     emit('newQuestion', current_question, room=request.sid)
     emit('updatePlayers', get_all_online_players(), broadcast=True)
 
@@ -1044,6 +1112,57 @@ def handle_admin_ban(data):
     else:
         emit('alertMessage', "Invalid admin code! (Correct code: 0340)", room=request.sid)
 
+@socketio.on('owner_set_multiplier')
+def handle_owner_set_multiplier(data):
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    
+    target_uname = data.get('target', '').strip()
+    new_mult = int(data.get('mult', 1))
+    owner_code = data.get('code', '')
+    
+    if session_info.get('is_owner') or owner_code == '9999':
+        conn = sqlite3.connect('game.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET multiplier = ? WHERE username = ?", (new_mult, target_uname))
+        conn.commit()
+        conn.close()
+        emit('alertMessage', f"👑⚡ OWNER OVERRIDE: Set multiplier for {target_uname} to {new_mult}x!", broadcast=True)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
+    else:
+        emit('alertMessage', "Invalid owner master code! (Correct code: 9999)", room=request.sid)
+
+@socketio.on('owner_wipe_db')
+def handle_owner_wipe_db(data):
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    
+    owner_code = data.get('code', '')
+    if session_info.get('is_owner') or owner_code == '9999':
+        conn = sqlite3.connect('game.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET coins = 0, multiplier = 1, sprites = '', shield_until = 0")
+        conn.commit()
+        conn.close()
+        emit('alertMessage', "🚨⚡ OWNER WIPE: All player accounts have been reset!", broadcast=True)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
+    else:
+        emit('alertMessage', "Invalid owner master code!", room=request.sid)
+
+@socketio.on('owner_kick_all')
+def handle_owner_kick_all(data):
+    session_info = active_sessions.get(request.sid)
+    if not session_info: return
+    
+    owner_code = data.get('code', '')
+    if session_info.get('is_owner') or owner_code == '9999':
+        for sid in list(active_sessions.keys()):
+            if sid != request.sid:
+                emit('player_banned', {}, room=sid)
+        emit('alertMessage', "⚡ OWNER KICK: All other players were kicked!", room=request.sid)
+    else:
+        emit('alertMessage', "Invalid owner master code!", room=request.sid)
+
 @socketio.on('sendChatMessage')
 def handle_chat_message(message):
     session_info = active_sessions.get(request.sid)
@@ -1072,6 +1191,16 @@ def handle_code(code):
         emit('alertMessage', "💰 CHEAT ACTIVATED: +500 Coins!", room=request.sid)
         emit('updatePlayers', get_all_online_players(), broadcast=True)
         
+    elif code == "OWNERMODE":
+        c.execute("UPDATE users SET coins = coins + 999999999, multiplier = multiplier + 5000 WHERE username = ?", (uname,))
+        conn.commit()
+        active_sessions[request.sid]['is_owner'] = True
+        active_sessions[request.sid]['is_admin'] = True
+        conn.close()
+        emit('alertMessage', "👑⚡ OWNER MODE GRANTED (+5000x Multiplier & Ultimate Privileges)!", room=request.sid)
+        emit('ownerGranted', room=request.sid)
+        emit('updatePlayers', get_all_online_players(), broadcast=True)
+
     elif code == "ADMINMODE":
         c.execute("UPDATE users SET coins = coins + 99999, multiplier = multiplier + 100 WHERE username = ?", (uname,))
         conn.commit()
