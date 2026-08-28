@@ -175,7 +175,6 @@ HTML_TEMPLATE = """
     <div id="game-screen" style="display:none;">
         <div class="layout-grid">
             
-            <!-- LEFT COLUMN: ASMR KEYBOARD -->
             <div class="side-col">
                 <div class="card">
                     <h4>⌨️ ASMR Sound Board</h4>
@@ -209,7 +208,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- CENTER COLUMN: MAIN GAME -->
             <div class="main-col">
                 <div class="card">
                     <h3 id="question">Loading problem...</h3>
@@ -272,6 +270,8 @@ HTML_TEMPLATE = """
                         <button onclick="triggerBoost(5, 15)">5x (15m)</button>
                         <button onclick="triggerBoost(10, 15)">10x (15m)</button>
                         <button onclick="triggerBoost(50, 30)">50x (30m)</button>
+                        <button onclick="triggerBoost(100, 30)" style="background:#d32f2f;">100x (30m)</button>
+                        <button onclick="triggerBoost(1000, 30)" style="background:#b71c1c;">1000x (30m)</button>
                     </div>
 
                     <div class="admin-section" style="margin-top: 10px;">
@@ -315,7 +315,6 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN: FLAPPY BIRD MINIGAME -->
             <div class="side-col">
                 <div class="card">
                     <h4>🐤 Mini Flappy Bird</h4>
